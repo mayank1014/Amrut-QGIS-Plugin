@@ -6,7 +6,7 @@
 name=Sankalan 2.0
 qgisMinimumVersion=3.0
 description=For Sankalan 2.0 Mobile Application.
-version=0.4
+version=0.5
 author=Indian Institute of Remote Sensing, ISRO
 email=amrut@iirs.gov.in
 
