@@ -2,7 +2,9 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QPushButton, QFileDialog, QMessageBox, QLabel, QLineEdit, QHBoxLayout, QComboBox
 )
 from PyQt5.QtCore import Qt
-
+import tempfile
+import os
+import shutil
 import zipfile
 import json
 from qgis.core import (
@@ -31,13 +33,13 @@ class ImportDialog(QDialog):
         # Add buttons for "Reconstruct Layer" and "Quality Check"
         self.add_centered_button(
             layout, 
-            "Reconstruct Layer", 
-            lambda: self._open_dialog(dialog, self.reconstruct_dialog)
+            "Quality Check", 
+            lambda: self._open_dialog(dialog, self.quality_check_dialog)
         )
         self.add_centered_button(
             layout, 
-            "Quality Check", 
-            lambda: self._open_dialog(dialog, self.quality_check_dialog)
+            "Reconstruct Layer", 
+            lambda: self._open_dialog(dialog, self.reconstruct_dialog)
         )
         footer_note = ui.get_footer_note()
         layout.addWidget(footer_note, alignment=Qt.AlignCenter)
@@ -145,8 +147,7 @@ class ImportDialog(QDialog):
         dropdown_layout.addWidget(label)
 
         dropdown.addItem(placeholder)
-        dropdown.model().item(0).setEnabled(False)  # Disable the placeholder item
-
+        
         if populate:
             dropdown.addItems([])  # Populate dropdown if needed
 
@@ -177,73 +178,94 @@ class ImportDialog(QDialog):
         """Validate the selected .amrut file"""
         try:
             self.layer_dropdown.clear()
-            self.layer_dropdown.addItem("Select any layer for Quality Check")  # Add default text
+            self.layer_dropdown.addItem("Select any layer for Quality Check")  
             self.layer_dropdown.model().item(0).setEnabled(False)
 
+            temp_dir = tempfile.mkdtemp()
+
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                # Check for metadata.json in the .amrut file
                 if 'metadata.json' not in zip_ref.namelist():
                     QMessageBox.warning(self, "Missing Metadata File", "The .amrut file does not contain 'metadata.json'.")
                     self.file_input.clear()
                     return
+                
+                zip_ref.extractall(temp_dir)
+                metadata_path = os.path.join(temp_dir, "metadata.json")
 
-                metadata = json.loads(zip_ref.read('metadata.json'))
-
-                if metadata.get("qc_status") == "verified":
-                    QMessageBox.information(self, "File Verified", "All layers of this file has been verified.")
+                try:
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+                except (json.JSONDecodeError, FileNotFoundError):
+                    QMessageBox.critical(self, "Invalid Metadata", "Failed to parse metadata.json.")
                     self.file_input.clear()
                     return
-                
-                # Check for layers in metadata
+
+                if metadata.get("qc_status") == "verified":
+                    QMessageBox.information(self, "File Verified", "All layers of this file have been verified.")
+                    self.file_input.clear()
+                    return
+
                 if 'layers' not in metadata or not isinstance(metadata['layers'], list):
                     QMessageBox.warning(self, "Invalid Metadata", "'layers' array is missing or invalid in metadata.json.")
                     self.file_input.clear()
                     return
 
-                # Extract layer names from metadata
-                layer_names = [
-                    layer.split(" : ")[0].strip("{}").strip()
-                    for layer in metadata['layers']
-                ]
+                # Extract layer names
+                layer_names = [layer.split(" : ")[0].strip("{}").strip() for layer in metadata['layers']]
+                
+                # Validate against QGIS layers
+                project_layers = [layer.name().strip().lower() for layer in QgsProject.instance().mapLayers().values()]
+                missing_in_project = [layer for layer in layer_names if layer.lower() not in project_layers]
 
-                # Validate if geojson files exist in the .amrut file
-                missing_files = [
-                    layer for layer in layer_names
-                    if f"{layer}.geojson" not in zip_ref.namelist()
-                ]
-                if missing_files:
-                    QMessageBox.warning(self, "Missing GeoJSON Files", f"The following GeoJSON files are missing: {', '.join(missing_files)}")
-                    self.file_input.clear()
-                    return
-
-                # Validate if layers exist in the QGIS project
-                project_layers = [layer.name() for layer in QgsProject.instance().mapLayers().values()]
-                missing_in_project = [
-                    layer for layer in layer_names
-                    if layer not in project_layers
-                ]
                 if missing_in_project:
                     QMessageBox.warning(self, "Missing Layers in QGIS", f"The following layers are missing in the project: {', '.join(missing_in_project)}")
                     self.file_input.clear()
                     return
 
-                # Identify layers with pending QC
+                # Identify pending QC layers
                 if 'layers_qc_completed' not in metadata:
-                    metadata['layers_qc_completed'] = []
+                    metadata['layers_qc_completed'] = [
+                        layer for layer in layer_names if f"{layer}.geojson" not in zip_ref.namelist()
+                    ]
+                    if set(metadata['layers_qc_completed']) == set(layer_names):
+                        metadata["qc_status"] = "verified"
 
-                layers_qc_pending = [
-                    layer for layer in layer_names
-                    if layer not in metadata['layers_qc_completed']
-                ]
+                layers_qc_pending = [layer for layer in layer_names if layer not in metadata['layers_qc_completed']]
 
-                # Extract bounds from metadata
-                self.metadata_bounds = {key: metadata[key] for key in ["north", "south", "east", "west"]}
+                # Update metadata.json
+                with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+                    json.dump(metadata, metadata_file, indent=4)
 
-                self.file_input.setText(file_path)
+            # Create a new .amrut file with updated metadata
+            temp_amrut_path = file_path + ".tmp"
+            with zipfile.ZipFile(temp_amrut_path, 'w') as new_zip:
+                for root, _, files in os.walk(temp_dir):
+                    for file in files:
+                        temp_file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(temp_file_path, temp_dir)
+                        new_zip.write(temp_file_path, arcname)
+
+            # Replace the original .amrut file with the updated one
+            os.replace(temp_amrut_path, file_path)
+
+            # Extract bounds from metadata
+            self.metadata_bounds = {key: metadata[key] for key in ["north", "south", "east", "west"] if key in metadata}
+
+            self.file_input.setText(file_path)
+            if layers_qc_pending:
                 self.layer_dropdown.addItems(layers_qc_pending)
-
+            else:
+                QMessageBox.information(self, "All Layers Verified", "All layers of this file have been verified.")
+                self.file_input.clear()
+                
         except Exception as e:
             QgsMessageLog.logMessage(f"Error in validate_amrut_file: {str(e)}", 'AMRUT', Qgis.Critical)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
+        finally:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+
 
     def proceed_quality_check(self):
         """Proceed with the quality check process for the selected layer"""

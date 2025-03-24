@@ -66,25 +66,44 @@ def check_geometries_and_extents(layers):
 
     return valid
 
-def check_polygon_in_a_layer(layer) :
+def check_polygon_in_a_layer(layer):
     valid = True
     invalid_geometries = []
     geometry_type = QgsWkbTypes.flatType(layer.wkbType())
-    if geometry_type == QgsWkbTypes.MultiPolygon or geometry_type == QgsWkbTypes.Polygon :
-            for feature in layer.getFeatures():
-                if not feature.geometry().isGeosValid():
-                    invalid_geometries.append((layer.name(), feature.id()))
-                    valid = False
-    else :
-        raise Exception("The grid / segmentation Layer should be of type : Polygon")
+
+    if geometry_type not in [QgsWkbTypes.MultiPolygon, QgsWkbTypes.Polygon]:
+        raise Exception("The grid/segmentation Layer should be of type: Polygon")
+
+    # Check if "id" attribute exists
+    provider = layer.dataProvider()
+    existing_fields = [field.name() for field in provider.fields()]
     
-    if invalid_geometries :
-        valid = False
+    if "id" not in existing_fields:
+        print("ID field not found. Adding 'id' field and assigning values...")
+        
+        # Add "id" field
+        provider.addAttributes([QgsField("id", QVariant.Int)])
+        layer.updateFields()  # Update layer to reflect new field
+        
+        # Assign auto-increment values to "id"
+        layer.startEditing()
+        for i, feature in enumerate(layer.getFeatures(), start=1):
+            feature["id"] = i
+            layer.updateFeature(feature)
+        layer.commitChanges()
+
+    # Check for invalid geometries
+    for feature in layer.getFeatures():
+        if not feature.geometry().isGeosValid():
+            invalid_geometries.append((layer.name(), feature.id()))
+            valid = False
+
+    if invalid_geometries:
         msg = "Invalid geometries detected:\n" + "\n".join(
             [f"Layer: {layer}, Feature ID: {fid}" for layer, fid in invalid_geometries]
         )
         raise Exception(msg)
-    
+
     return valid
 
 def validate_layer(layer):

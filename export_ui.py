@@ -119,13 +119,13 @@ def getGridLayerInput(selectedLayersName, allLayers) :
     def on_radio_button_toggled():
         if yes_radio.isChecked():
             layer_dropdown.setVisible(True)
-            dropdown_lable.setText("Selelet Grid / Segmentation Layer : ")
+            dropdown_lable.setText("Select Grid / Segmentation Layer : ")
             dropdown_lable.setVisible(True)
             number_input.setVisible(False)
             number_label.setVisible(False)
         elif no_radio.isChecked():
             layer_dropdown.setVisible(True)
-            dropdown_lable.setText("Selelet Area Boundary Layer : ")
+            dropdown_lable.setText("Select Area Boundary Layer : ")
             dropdown_lable.setVisible(True)
             number_input.setVisible(True)
             number_label.setVisible(True)

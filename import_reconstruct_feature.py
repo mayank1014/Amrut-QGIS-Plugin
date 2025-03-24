@@ -9,12 +9,15 @@ from qgis.core import (
     QgsProject, QgsRectangle, QgsMessageLog, Qgis, QgsWkbTypes, QgsFeature, QgsFeatureRequest, edit, QgsVectorLayer, QgsProcessingFeatureSourceDefinition, QgsCategorizedSymbolRenderer, QgsRenderContext, QgsSingleSymbolRenderer,
     QgsRendererCategory,
     QgsSymbol,
+    QgsVectorFileWriter, 
+    QgsCoordinateTransformContext
 )
 from qgis.gui import QgsMapCanvas, QgsMapToolPan
 from . import import_workers
 import processing
 import random
 import base64
+from osgeo import ogr
 
 class ReconstructFeatures:
     def __init__(self, selected_layer, selected_raster_layer, data, progress_bar, progress_lable):
@@ -398,6 +401,9 @@ class ReconstructFeatures:
             merged_layer = self.merge_features_by_attribute(self.saved_temp_layer, "feature_id")
 
             if self.saved_temp_layer is not None:
+                original_path = self.saved_temp_layer.dataProvider().dataSourceUri().split("|")[0]  
+                print(f"Original file path of saved_temp_layer: {original_path}")
+
                 layer_name = self.saved_temp_layer.name()
 
                 if layer_name.startswith("Temporary_"):
@@ -415,13 +421,30 @@ class ReconstructFeatures:
                     print("Layer node not found in layer tree.")
 
                 if merged_layer is not None and merged_layer.isValid():
+                    # Get the file path of the existing saved layer
+                    temp_layer_path = self.saved_temp_layer.source()  
+
+                    # Remove the old layer from the project
                     QgsProject.instance().removeMapLayer(self.saved_temp_layer.id())
-                    merged_layer.setName(new_layer_name)
-                    QgsProject.instance().addMapLayer(merged_layer)
-                    self.saved_temp_layer = merged_layer
+
+                    # Save merged_layer to the same file location (overwriting)
+                    options = QgsVectorFileWriter.SaveVectorOptions()
+                    options.driverName = "GPKG"
+                    options.fileEncoding = "UTF-8"
+                    options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+                    QgsVectorFileWriter.writeAsVectorFormatV2(merged_layer, temp_layer_path, QgsCoordinateTransformContext(), options)
+
+                    # Reload the updated layer
+                    new_layer = QgsVectorLayer(temp_layer_path, new_layer_name, "ogr")
+
+                    if new_layer.isValid():
+                        QgsProject.instance().addMapLayer(new_layer)
+                        self.saved_temp_layer = new_layer  # Update reference
+                    else:
+                        print("Error: Failed to reload the updated layer.")
                 else:
                     self.saved_temp_layer.setName(new_layer_name)
-                    print("Merged layer is invalid. Only renaming existing layer.")
+                    print("Merged layer is invalid. Only renaming existing layer.")      
 
                 self.saved_temp_layer.setName(new_layer_name)
                 self.saved_temp_layer.setSubsetString("")
