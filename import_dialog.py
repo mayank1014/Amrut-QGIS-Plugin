@@ -181,6 +181,17 @@ class ImportDialog(QDialog):
             self.layer_dropdown.addItem("Select any layer for Quality Check")  
             self.layer_dropdown.model().item(0).setEnabled(False)
 
+             # Check if file_path exists, otherwise try with resurvey_required_ prefix
+            if not os.path.exists(file_path):
+                directory = os.path.dirname(file_path)
+                filename = os.path.basename(file_path)
+                prefixed_path = os.path.join(directory, f"resurvey_required_{filename}")
+                if os.path.exists(prefixed_path):
+                    file_path = prefixed_path  # Use the prefixed file instead
+                else:
+                    QMessageBox.critical(self, "File Not Found", "The selected .amrut file or its resurvey version could not be found.")
+                    return
+
             temp_dir = tempfile.mkdtemp()
 
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
@@ -202,6 +213,11 @@ class ImportDialog(QDialog):
 
                 if metadata.get("qc_status") == "verified":
                     QMessageBox.information(self, "File Verified", "All layers of this file have been verified.")
+                    self.file_input.clear()
+                    return
+                
+                if "resurvey" in metadata and len(metadata["resurvey"]) > 0 and "layers_qc_completed" not in metadata and "qc_status" not in metadata:
+                    QMessageBox.information(self, "Marked for Re-Survey", "File has already been marked for Re-Survey.")
                     self.file_input.clear()
                     return
 

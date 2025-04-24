@@ -6,7 +6,7 @@
 name=Sankalan 2.0
 qgisMinimumVersion=3.0
 description=For Sankalan 2.0 Mobile Application.
-version=0.5
+version=0.6
 author=Indian Institute of Remote Sensing, ISRO
 email=amrut@iirs.gov.in
 
@@ -20,7 +20,7 @@ repository=https://gitlab.com/iirs-amrut/amrut-qgis-plugin
 
 hasProcessingProvider=no
 # Uncomment the following line and add your changelog:
-# changelog=
+changelog= Added ability to show deleted feature form mobile export, Added mechanism for resurvey of an area during Quality check
 
 # Tags are comma separated with spaces allowed
 tags=python
