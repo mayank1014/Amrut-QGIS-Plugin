@@ -19,9 +19,9 @@ Sankalan 2.0 is a powerful data transfer plugin designed for seamless integratio
 
 ## Installation
 
-1. Clone the repository from GitLab:
+1. Clone the repository from GitHub:
    ```bash
-   git clone https://gitlab.com/iirs-amrut/amrut-qgis-plugin/
+   https://github.com/mayank1014/Amrut-QGIS-Plugin/
    ```
 2. Open QGIS.
 3. Navigate to `Plugins > Manage and Install Plugins`.
